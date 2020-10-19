@@ -1,0 +1,175 @@
+```{r}
+require(dplyr)
+require(tidyr)
+require(tidyverse)
+require(mosaic)
+require(emmeans)
+require(ggplot2)
+```
+
+```{r}
+#filtering the needed data
+data = read.csv('full_data.csv')
+data = data %>% filter(location=='Singapore'|location=='United States'|location=='Sweden')
+data
+```
+
+```{r}
+data = data %>% mutate(fatality_rate = (total_deaths/total_cases)*100)
+united_states = data %>% filter(location=='United States') %>% filter(date>= '2020-02-19' & date <= '2020-09-05')
+singapore = data%>% filter(location=='Singapore') %>% filter(date>= '2020-01-23' & date <= '2020-09-05')
+sweden = data %>% filter(location=='Sweden') %>% filter(date>= '2020-02-01' & date <= '2020-09-05')
+```
+
+
+```{r}
+#data for analysis
+data_analysis = rbind(united_states,singapore,sweden)
+data_analysis = subset(data, select = c("date","location","fatality_rate"))
+data_analysis = data_analysis %>% drop_na()
+data_analysis
+```
+#boxplot to see if it violates any assumptions
+```{r}
+favstats(fatality_rate~location, data=data_analysis)
+#we can see that there are large differences in standard deviation among the 3 countries, but sample size deviates only slightly 
+```
+
+```{r}
+boxplot(fatality_rate~location, data=data_analysis)
+#passes the normal distribution test no outliers, but unequal variances and s.d between groups so T-K will be used
+```
+```{r}
+#T-K pariwise comparison
+lm = lm(fatality_rate~location, data=data_analysis)
+em = emmeans(lm, "location", data=data_analysis)
+tk = contrast(em, method="pairwise", adjust="Tukey")
+confint(tk)
+summary(tk)
+```
+
+
+
+
+
+
+
+
+```{r}
+#getting and filter proper data 
+data2 = read.csv('Full_Country_Covid.csv')
+data2 = data2 %>% filter(CountryName=='Singapore'|CountryName=='United States'|CountryName=='Sweden')
+data2 = data2
+data2 = data2 %>% group_by(CountryName)
+#change date to proper format
+data2 = data2 %>% mutate(Date = as.character(Date))
+data2$Date = str_replace(data2$Date, "(\\d{4})(\\d{2})(\\d{2})$","\\1-\\2-\\3")
+data2 = data2 %>% mutate(fatality_rate = (ConfirmedDeaths/ConfirmedCases)*100)
+data2
+
+#filter by first reported cases
+singapore_health_index = data2 %>% filter(CountryName=='Singapore') %>% filter(Date>= '2020-01-23' & Date <= '2020-09-05')
+unitedstates_health_index = data2 %>% filter(CountryName=='United States') %>% filter(Date>= '2020-02-19' & Date <= '2020-09-05')
+sweden_health_index = data2 %>% filter(CountryName=='Sweden') %>% filter(Date>= '2020-02-01' & Date <= '2020-09-05')
+```
+
+```{r}
+#drop unused columns
+singapore_health_index = subset(singapore_health_index, select=-c(CountryCode,RegionName,RegionCode))
+unitedstates_health_index = subset(unitedstates_health_index, select=-c(CountryCode,RegionName,RegionCode))
+sweden_health_index = subset(sweden_health_index, select=-c(CountryCode,RegionName,RegionCode))
+
+#aggregate the average of each month and take the average to represent the united states since this dataset has data for each states and region for the U.S, but the other countries are only by countries
+unitedstates_health_index = unitedstates_health_index %>% group_by(CountryName, Date) %>% summarise_all("mean")
+
+unitedstates_health_index$ConfirmedCases = united_states$total_cases
+unitedstates_health_index$ConfirmedDeaths = united_states$total_deaths
+unitedstates_health_index$fatality_rate = united_states$fatality_rate
+
+unitedstates_health_index$ContainmentHealthIndex[is.na(unitedstates_health_index$ContainmentHealthIndex)] <- 0
+unitedstates_health_index$StringencyIndex[is.na(unitedstates_health_index$StringencyIndex)] <- 0
+# unitedstates_health_index = unitedstates_health_index %>% mutate(log_StringencyIndex=log(StringencyIndex), log_fatality_rate = log(fatality_rate))
+```
+
+```{r}
+index_total = rbind(singapore_health_index,sweden_health_index,unitedstates_health_index)
+index_total$fatality_rate[index_total$fatality_rate =='NaN'] <- 0
+index_total = subset(index_total, select = c("CountryName","Date","ContainmentHealthIndex","StringencyIndex","fatality_rate"))
+```
+
+```{r}
+index_total = index_total %>% mutate(log_containment = log(ContainmentHealthIndex))
+index_total$log_containment[index_total$log_containment == '-Inf'] <- 0
+
+index_total = index_total %>% mutate(log_stringency = log(StringencyIndex))
+index_total$log_stringency[index_total$log_stringency == '-Inf'] <- 0
+```
+
+
+```{r}
+boxplot(ContainmentHealthIndex~CountryName, data=index_total)
+```
+
+
+```{r}
+#T-K pariwise comparison
+lm2 = lm(log_containment~CountryName, data=index_total)
+em2 = emmeans(lm2, 'CountryName', data=index_total)
+tk2 = contrast(em2, method="pairwise", adjust="Tukey")
+confint(tk2)
+summary(tk2)
+```
+
+```{r}
+boxplot(StringencyIndex~CountryName, data=index_total)
+```
+
+
+```{r}
+lm3 = lm(log_stringency~CountryName, data=index_total)
+em3 = emmeans(lm3, "CountryName", data=index_total)
+tk3 = contrast(em3, method="pairwise", adjust="Tukey")
+confint(tk3)
+summary(tk3)
+```
+
+
+
+```{r}
+num_row = count(unitedstates_health_index, "Date")
+num_row
+num_row_2 = count(singapore_health_index, "Date")
+num_row_2
+num_row_3 = count(sweden_health_index, "Date")
+num_row_3
+
+```
+```{r}
+unitedstates_health_index = unitedstates_health_index %>% mutate(date_count = seq(1,200, by=1))
+singapore_health_index = singapore_health_index %>% mutate(date_count = seq(1,227, by=1))
+sweden_health_index = sweden_health_index %>% mutate(date_count = seq(1,218, by=1))
+```
+
+```{r}
+lm_united_states = lm(fatality_rate~StringencyIndex, data=unitedstates_health_index)
+summary(lm_united_states)
+lm_singapore = lm(fatality_rate~StringencyIndex, data=singapore_health_index)
+summary(lm_singapore)
+lm_sweden = lm(fatality_rate~StringencyIndex, data=sweden_health_index)
+summary(lm_sweden)
+```
+
+
+```{r}
+lm_united_states = lm(fatality_rate~ContainmentHealthIndex, data=unitedstates_health_index)
+summary(lm_united_states)
+lm_singapore = lm(fatality_rate~ContainmentHealthIndex, data=singapore_health_index)
+summary(lm_singapore)
+lm_sweden = lm(fatality_rate~ContainmentHealthIndex, data=sweden_health_index)
+summary(lm_sweden)
+```
+
+```{r}
+ggplot(unitedstates_health_index, aes(x=date_count, y=fatality_rate))+geom_point()+geom_smooth(method="lm")
+```
+
